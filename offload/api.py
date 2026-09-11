@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from offload.agents.executor import process_actionable_tasks
 from offload.agents.router import route_capture
 from offload.capture import add_capture, list_unrouted
 from offload.db import init_db, session
@@ -30,6 +31,7 @@ async def lifespan(app: FastAPI):
     scheduler = AsyncIOScheduler(timezone="UTC")
     scheduler.add_job(route_unrouted_captures, "interval", seconds=15)
     scheduler.add_job(check_due_tasks, "interval", seconds=30)
+    scheduler.add_job(process_actionable_tasks, "interval", seconds=20)
     scheduler.start()
     yield
     scheduler.shutdown(wait=False)
