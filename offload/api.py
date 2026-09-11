@@ -1,12 +1,15 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
 from offload.agents.executor import process_actionable_tasks
+from offload.agents.patterns import weekly_pattern_report
 from offload.agents.router import route_capture
 from offload.capture import add_capture, list_unrouted
 from offload.db import init_db, session
@@ -32,12 +35,20 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(route_unrouted_captures, "interval", seconds=15)
     scheduler.add_job(check_due_tasks, "interval", seconds=30)
     scheduler.add_job(process_actionable_tasks, "interval", seconds=20)
+    scheduler.add_job(weekly_pattern_report, "interval", days=7)
     scheduler.start()
     yield
     scheduler.shutdown(wait=False)
 
 
 app = FastAPI(title="Offload", lifespan=lifespan)
+
+STATIC_DIR = Path(__file__).parent / "static"
+
+
+@app.get("/")
+async def inbox_page():
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 class CaptureIn(BaseModel):

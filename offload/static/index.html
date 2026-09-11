@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Offload</title>
+<style>
+  :root {
+    --bg: #0f1115; --surface: #171a21; --surface-2: #1e2230;
+    --text: #e8e6e1; --muted: #8b8fa3; --line: #262b3a;
+    --executor: #7dd3a8; --delegator: #e8b45e; --scheduler: #7aa5f7;
+    --danger: #e07a6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+    padding: 0 16px;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding-block: 48px 96px; }
+  header h1 {
+    font-size: clamp(2rem, 5vw, 2.8rem); margin: 0; letter-spacing: -0.03em;
+  }
+  header p { color: var(--muted); margin: 4px 0 0; }
+  form {
+    display: flex; gap: 8px; margin: 32px 0 40px;
+  }
+  input[type=text] {
+    flex: 1; background: var(--surface); border: 1px solid var(--line);
+    color: var(--text); border-radius: 10px; padding: 14px 16px; font: inherit;
+  }
+  input[type=text]:focus { outline: 2px solid var(--scheduler); border-color: transparent; }
+  button {
+    font: inherit; border: 0; border-radius: 10px; padding: 0 20px;
+    background: var(--text); color: var(--bg); font-weight: 600; cursor: pointer;
+  }
+  button:hover { opacity: .85; }
+  section h2 {
+    font-size: .8rem; text-transform: uppercase; letter-spacing: .12em;
+    color: var(--muted); margin: 28px 0 10px;
+  }
+  .task {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 10px; display: flex; gap: 12px; align-items: center;
+    border-left: 3px solid var(--muted);
+  }
+  .task.executor { border-left-color: var(--executor); }
+  .task.delegator { border-left-color: var(--delegator); }
+  .task.scheduler { border-left-color: var(--scheduler); }
+  .task .body { flex: 1; min-width: 0; }
+  .task .title { font-weight: 600; }
+  .task .meta { color: var(--muted); font-size: .82rem; margin-top: 2px; }
+  .task .result {
+    margin-top: 8px; padding: 10px 12px; background: var(--surface-2);
+    border-radius: 8px; font-size: .88rem; white-space: pre-wrap; word-break: break-word;
+  }
+  .actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .actions button {
+    background: var(--surface-2); color: var(--text); padding: 8px 12px;
+    font-size: .82rem; border: 1px solid var(--line);
+  }
+  .actions button.done:hover { background: var(--executor); color: var(--bg); }
+  .actions button.snooze:hover { background: var(--scheduler); color: var(--bg); }
+  .actions button.abandon:hover { background: var(--danger); color: var(--bg); }
+  .empty { color: var(--muted); padding: 24px 0; }
+  .donelist .task { opacity: .55; }
+  @media (max-width: 480px) {
+    .task { flex-direction: column; align-items: stretch; }
+    .actions { justify-content: flex-end; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Offload</h1>
+    <p>Type it. Forget it. The agent has it now.</p>
+  </header>
+
+  <form id="capture-form">
+    <input type="text" id="capture-text" placeholder="What's circling in your head?" autofocus autocomplete="off">
+    <button type="submit">Offload</button>
+  </form>
+
+  <section><h2>Open</h2><div id="open"></div></section>
+  <section class="donelist"><h2>Recently closed</h2><div id="closed"></div></section>
+</div>
+
+<script>
+const LANE_LABEL = { executor: "agent did it", delegator: "draft ready", scheduler: "nudge set" };
+
+async function refresh() {
+  const tasks = await (await fetch("/tasks")).json();
+  const open = tasks.filter(t => !["done", "abandoned"].includes(t.state));
+  const closed = tasks.filter(t => ["done", "abandoned"].includes(t.state)).slice(0, 8);
+  render(document.getElementById("open"), open, true);
+  render(document.getElementById("closed"), closed, false);
+}
+
+function render(el, tasks, withActions) {
+  el.innerHTML = "";
+  if (!tasks.length) {
+    el.innerHTML = '<div class="empty">Nothing here — head\'s clear.</div>';
+    return;
+  }
+  for (const t of tasks) {
+    const div = document.createElement("div");
+    div.className = "task " + t.lane;
+    const due = t.due_at ? new Date(t.due_at + (t.due_at.endsWith("Z") ? "" : "Z")).toLocaleString([], {weekday:"short", hour:"2-digit", minute:"2-digit"}) : "";
+    div.innerHTML = `
+      <div class="body">
+        <div class="title"></div>
+        <div class="meta">${t.lane} · ${LANE_LABEL[t.lane] || ""} ${due ? "· " + due : ""} · ${t.state}</div>
+        ${t.result ? '<div class="result"></div>' : ""}
+      </div>
+      ${withActions ? `
+      <div class="actions">
+        <button class="done">Done</button>
+        <button class="snooze">Snooze</button>
+        <button class="abandon">Drop</button>
+      </div>` : ""}`;
+    div.querySelector(".title").textContent = t.title;
+    if (t.result) div.querySelector(".result").textContent = t.result;
+    if (withActions) {
+      for (const action of ["done", "snooze", "abandon"]) {
+        div.querySelector("." + action).onclick = async () => {
+          await fetch(`/tasks/${t.id}/reply`, {
+            method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({action})
+          });
+          refresh();
+        };
+      }
+    }
+    el.appendChild(div);
+  }
+}
+
+document.getElementById("capture-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const input = document.getElementById("capture-text");
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  await fetch("/capture", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({text, source_type: "quick_add", device_id: "web"})
+  });
+  refresh();
+};
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
