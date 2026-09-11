@@ -8,6 +8,7 @@ from sqlalchemy import select
 from strands import tool
 
 from offload.agents.model_factory import build_model
+from offload.channels import ticktick
 from offload.channels.telegram import send_text
 from offload.db import session
 from offload.models import Capture, Event, Task
@@ -57,6 +58,14 @@ async def notify_user(message: str) -> str:
     return "delivered" if ok else "delivery failed"
 
 
+@tool
+async def add_task_to_ticktick(title: str, due_at_iso: str = "") -> str:
+    """Add a task to the user's TickTick task manager, optionally with an ISO 8601 due time."""
+    due = datetime.fromisoformat(due_at_iso) if due_at_iso else None
+    ok = await ticktick.push_task(title, due)
+    return "added to TickTick" if ok else "TickTick not configured"
+
+
 RunFn = Callable[[Task, str], Awaitable[str]]
 
 
@@ -67,7 +76,7 @@ async def run_with_strands(task: Task, raw_text: str) -> str:
     agent = Agent(
         model=build_model(),
         system_prompt=EXECUTOR_SYSTEM_PROMPT,
-        tools=[save_note, notify_user, current_time, http_request],
+        tools=[save_note, notify_user, add_task_to_ticktick, current_time, http_request],
         callback_handler=None,
     )
     result = await agent.invoke_async(

@@ -28,6 +28,12 @@ class Settings:
     )
     telegram_bot_token: str = field(default_factory=lambda: os.getenv("TELEGRAM_BOT_TOKEN", ""))
     telegram_chat_id: str = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", ""))
+    ollama_host: str = field(
+        default_factory=lambda: os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+    )
+    ollama_model_id: str = field(
+        default_factory=lambda: os.getenv("OLLAMA_MODEL_ID", "hermes3")
+    )
 
 
 def get_settings() -> Settings:

@@ -4,9 +4,14 @@ from typing import Awaitable, Callable, Literal
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+import logging
+
 from offload.agents.model_factory import build_model
+from offload.channels import ticktick
 from offload.db import session
 from offload.models import Capture, Event, Task
+
+log = logging.getLogger("offload")
 
 ROUTER_SYSTEM_PROMPT = """\
 You are the routing brain of Offload, an executive-function assistant for a person
@@ -92,4 +97,17 @@ async def route_capture(capture_id: str, decide: DecideFn = decide_with_strands)
         )
         await s.commit()
         await s.refresh(task)
-        return task
+
+    if decision.lane == "scheduler" and ticktick.is_configured():
+        try:
+            mirrored = await ticktick.push_task(
+                decision.title, decision.due_at, note=f"Offload: {capture.raw_text[:200]}"
+            )
+        except Exception:
+            log.exception("ticktick mirror failed for task %s", task.id)
+            mirrored = False
+        if mirrored:
+            async with session() as s:
+                s.add(Event(kind="ticktick.mirrored", payload={"task_id": task.id}))
+                await s.commit()
+    return task
